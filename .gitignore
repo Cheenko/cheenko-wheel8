@@ -1,0 +1,12 @@
+# Rust / Anchor
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Node / Yarn
+node_modules/
+yarn.lock
+
+# Misc
+.DS_Store
+.anchors
