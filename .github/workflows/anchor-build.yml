@@ -27,44 +27,28 @@ jobs:
           fi
 
       - name: Show repo tree
+        shell: bash
         run: |
           echo "PWD=$(pwd)"
           ls -la
           echo "----"
           ls -la "${{ steps.finddir.outputs.project_dir }}"
 
-      - name: Set up Node (for Anchor CLI)
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: '18'
 
-      - name: Install Anchor CLI
-        run: |
-          npm i -g @coral-xyz/anchor@latest
-          # ensure npm's global bin is on PATH for subsequent steps
-          echo "$(npm bin -g)" >> $GITHUB_PATH
-          echo "NPM global bin: $(npm bin -g)"
+      # We use npx so we don't depend on PATH for a global 'anchor'
+      - name: Verify Anchor version via npx
+        shell: bash
+        run: npx --yes @coral-xyz/anchor@latest --version
 
-      - name: Verify Anchor in PATH
+      - name: Build Anchor program via npx
+        shell: bash
         run: |
-          which anchor || true
-          anchor --version
-
-      - name: Cache cargo & sbf
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cache/sbf
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Build Anchor program
-        working-directory: ${{ steps.finddir.outputs.project_dir }}
-        run: |
-          anchor build
+          cd "${{ steps.finddir.outputs.project_dir }}"
+          npx --yes @coral-xyz/anchor@latest build
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
