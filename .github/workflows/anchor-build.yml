@@ -8,10 +8,32 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Detect Anchor project dir
+        id: finddir
+        shell: bash
+        run: |
+          if [ -f Anchor.toml ]; then
+            echo "project_dir=." >> "$GITHUB_OUTPUT"
+          elif [ -f wheel8/Anchor.toml ]; then
+            echo "project_dir=wheel8" >> "$GITHUB_OUTPUT"
+          else
+            echo "No Anchor.toml at repo root or in wheel8/"
+            echo "Top-level contents:" && ls -la
+            exit 1
+          fi
+          echo "Using project_dir=$(cat $GITHUB_OUTPUT)"
+
+      - name: Show repo tree
+        run: |
+          echo "PWD=$(pwd)"
+          echo "Top-level:" && ls -la
+          echo "----"
+          echo "Project dir (${{ steps.finddir.outputs.project_dir }}):"
+          ls -la "${{ steps.finddir.outputs.project_dir }}"
 
       - name: Set up Node (for Anchor CLI)
         uses: actions/setup-node@v4
@@ -21,7 +43,6 @@ jobs:
       - name: Install Anchor CLI
         run: npm i -g @coral-xyz/anchor
 
-      # Optional: speed up repeated builds by caching cargo/registry & SBF toolchain
       - name: Cache cargo & sbf
         uses: actions/cache@v4
         with:
@@ -34,16 +55,15 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build Anchor program
-        working-directory: ./wheel8
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
           anchor --version
           anchor build
 
-      - name: Upload deploy artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: wheel8-artifacts
           path: |
-            wheel8/target/deploy/*
-            wheel8/target/idl/*
-
+            ${{ steps.finddir.outputs.project_dir }}/target/deploy/*
+            ${{ steps.finddir.outputs.project_dir }}/target/idl/*
