@@ -22,17 +22,15 @@ jobs:
             echo "project_dir=wheel8" >> "$GITHUB_OUTPUT"
           else
             echo "No Anchor.toml at repo root or in wheel8/"
-            echo "Top-level contents:" && ls -la
+            ls -la
             exit 1
           fi
-          echo "Using project_dir=$(cat $GITHUB_OUTPUT)"
 
       - name: Show repo tree
         run: |
           echo "PWD=$(pwd)"
-          echo "Top-level:" && ls -la
+          ls -la
           echo "----"
-          echo "Project dir (${{ steps.finddir.outputs.project_dir }}):"
           ls -la "${{ steps.finddir.outputs.project_dir }}"
 
       - name: Set up Node (for Anchor CLI)
@@ -41,7 +39,16 @@ jobs:
           node-version: '18'
 
       - name: Install Anchor CLI
-        run: npm i -g @coral-xyz/anchor
+        run: |
+          npm i -g @coral-xyz/anchor@latest
+          # ensure npm's global bin is on PATH for subsequent steps
+          echo "$(npm bin -g)" >> $GITHUB_PATH
+          echo "NPM global bin: $(npm bin -g)"
+
+      - name: Verify Anchor in PATH
+        run: |
+          which anchor || true
+          anchor --version
 
       - name: Cache cargo & sbf
         uses: actions/cache@v4
@@ -57,7 +64,6 @@ jobs:
       - name: Build Anchor program
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
-          anchor --version
           anchor build
 
       - name: Upload artifacts
