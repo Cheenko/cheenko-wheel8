@@ -9,94 +9,70 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     env:
-      # optional: pin Anchor version if you want
-      ANCHOR_VER: latest
-
+      ANCHOR_VER: 0.30.1   # pin a known-good Anchor; change if you prefer
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Sanity check repo contents
+      - name: Sanity check repo
         shell: bash
         run: |
           echo "PWD=$(pwd)"
           ls -la
           echo "----"
           if [ -d wheel8 ]; then
-            echo "wheel8/ folder found ✅"
-            ls -la wheel8
+            echo "wheel8/ found ✅"; ls -la wheel8
           else
-            echo "wheel8/ folder NOT FOUND ❌"
+            echo "wheel8/ NOT FOUND ❌"; exit 1
           fi
 
-      - name: Detect Anchor project dir
+      - name: Detect project dir
         id: finddir
         shell: bash
         run: |
-          if [ -f Anchor.toml ]; then
-            echo "project_dir=." >> "$GITHUB_OUTPUT"
-          elif [ -f wheel8/Anchor.toml ]; then
+          if [ -f wheel8/Anchor.toml ]; then
             echo "project_dir=wheel8" >> "$GITHUB_OUTPUT"
+          elif [ -f Anchor.toml ]; then
+            echo "project_dir=." >> "$GITHUB_OUTPUT"
           else
-            echo "No Anchor.toml at repo root or in wheel8/"
-            ls -la
-            exit 1
+            echo "No Anchor.toml found"; exit 1
           fi
-          echo "Detected project_dir: $(cat $GITHUB_OUTPUT || true)"
 
-      - name: Show project dir tree
-        shell: bash
-        run: |
-          echo "Project dir: ${{ steps.finddir.outputs.project_dir }}"
-          ls -la "${{ steps.finddir.outputs.project_dir }}"
-
-      - name: Install system build deps
+      - name: Install system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libssl-dev libudev-dev
 
-      - name: Set up Rust (stable)
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
+      - name: Set up Rust
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          rustc --version || true
 
-      - name: Cache cargo & sbf
-        uses: actions/cache@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cache/sbf
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          node-version: '18'
 
       - name: Verify Anchor via npx
-        shell: bash
-        run: |
-          set -euxo pipefail
-          npx --yes @coral-xyz/anchor@${ANCHOR_VER} --version || true
-          echo "Node: $(node -v)"
-          echo "NPM : $(npm -v)"
-          echo "Rust: $(rustc --version)"
+        run: npx --yes @coral-xyz/anchor@${{ env.ANCHOR_VER }} --version
 
-      - name: Build Anchor program (npx)
+      - name: Build Anchor program (npx, verbose)
         shell: bash
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
           set -euxo pipefail
-          cd "${{ steps.finddir.outputs.project_dir }}"
-          # optional: print Anchor.toml for sanity
-          echo "---- Anchor.toml ----"
-          sed -n '1,120p' Anchor.toml || true
-          echo "---------------------"
-          npx --yes @coral-xyz/anchor@${ANCHOR_VER} build
+          echo "Using Anchor.toml from: $(pwd)"
+          sed -n '1,160p' Anchor.toml || true
+          # verbose build + keep a copy of the log
+          npx --yes @coral-xyz/anchor@${{ env.ANCHOR_VER }} build --verbose 2>&1 | tee build.log
 
       - name: Upload artifacts
+        if: success() || failure()
         uses: actions/upload-artifact@v4
         with:
           name: wheel8-artifacts
           path: |
             ${{ steps.finddir.outputs.project_dir }}/target/deploy/*
             ${{ steps.finddir.outputs.project_dir }}/target/idl/*
+            ${{ steps.finddir.outputs.project_dir }}/build.log
