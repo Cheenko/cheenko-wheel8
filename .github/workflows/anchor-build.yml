@@ -55,17 +55,17 @@ jobs:
           node-version: '18'
 
       - name: Verify Anchor via npx
-        run: npx --yes @coral-xyz/anchor@${{ env.ANCHOR_VER }} --version
+        run: npx -y -p @coral-xyz/anchor anchor --version
 
-      - name: Build Anchor program (npx, verbose)
-        shell: bash
-        working-directory: ${{ steps.finddir.outputs.project_dir }}
-        run: |
-          set -euxo pipefail
-          echo "Using Anchor.toml from: $(pwd)"
-          sed -n '1,160p' Anchor.toml || true
-          # verbose build + keep a copy of the log
-          npx --yes @coral-xyz/anchor@${{ env.ANCHOR_VER }} build --verbose 2>&1 | tee build.log
+
+      - - name: Build Anchor program (npx)
+          shell: bash
+          working-directory: ${{ steps.finddir.outputs.project_dir }}
+          run: |
+            set -euxo pipefail
+            echo "Using Anchor.toml from: $(pwd)"
+            sed -n '1,160p' Anchor.toml || true
+            npx -y -p @coral-xyz/anchor anchor build --verbose
 
       - name: Upload artifacts
         if: success() || failure()
