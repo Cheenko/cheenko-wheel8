@@ -8,8 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    env:
-      ANCHOR_VER: 0.30.1   # pin a known-good Anchor; change if you prefer
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,27 +21,35 @@ jobs:
           if [ -d wheel8 ]; then
             echo "wheel8/ found ✅"; ls -la wheel8
           else
-            echo "wheel8/ NOT FOUND ❌"; exit 1
+            echo "wheel8/ NOT FOUND ❌ (ok if project is at repo root)"
           fi
 
-      - name: Detect project dir
+      - name: Detect Anchor project dir
         id: finddir
         shell: bash
         run: |
-          if [ -f wheel8/Anchor.toml ]; then
-            echo "project_dir=wheel8" >> "$GITHUB_OUTPUT"
-          elif [ -f Anchor.toml ]; then
+          if [ -f Anchor.toml ]; then
             echo "project_dir=." >> "$GITHUB_OUTPUT"
+          elif [ -f wheel8/Anchor.toml ]; then
+            echo "project_dir=wheel8" >> "$GITHUB_OUTPUT"
           else
-            echo "No Anchor.toml found"; exit 1
+            echo "No Anchor.toml found at repo root or in wheel8/"
+            ls -la
+            exit 1
           fi
 
-      - name: Install system deps
+      - name: Show project dir tree
+        shell: bash
+        run: |
+          echo "Project dir: ${{ steps.finddir.outputs.project_dir }}"
+          ls -la "${{ steps.finddir.outputs.project_dir }}"
+
+      - name: Install system build deps
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libssl-dev libudev-dev
 
-      - name: Set up Rust
+      - name: Set up Rust (stable)
         run: |
           curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
@@ -55,17 +61,20 @@ jobs:
           node-version: '18'
 
       - name: Verify Anchor via npx
-        run: npx -y -p @coral-xyz/anchor anchor --version
+        run: |
+          npx -y -p @coral-xyz/anchor anchor --version
+          echo "Node: $(node -v)"
+          echo "NPM : $(npm -v)"
+          echo "Rust: $(rustc --version)"
 
-
-      - - name: Build Anchor program (npx)
-          shell: bash
-          working-directory: ${{ steps.finddir.outputs.project_dir }}
-          run: |
-            set -euxo pipefail
-            echo "Using Anchor.toml from: $(pwd)"
-            sed -n '1,160p' Anchor.toml || true
-            npx -y -p @coral-xyz/anchor anchor build --verbose
+      - name: Build Anchor program (npx, verbose)
+        shell: bash
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
+        run: |
+          set -euxo pipefail
+          echo "Using Anchor.toml from: $(pwd)"
+          sed -n '1,160p' Anchor.toml || true
+          npx -y -p @coral-xyz/anchor anchor build --verbose 2>&1 | tee build.log
 
       - name: Upload artifacts
         if: success() || failure()
