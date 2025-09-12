@@ -8,6 +8,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    env:
+      # optional: pin Anchor version if you want
+      ANCHOR_VER: latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,7 +20,6 @@ jobs:
         shell: bash
         run: |
           echo "PWD=$(pwd)"
-          echo "Top-level contents:"
           ls -la
           echo "----"
           if [ -d wheel8 ]; then
@@ -39,6 +42,7 @@ jobs:
             ls -la
             exit 1
           fi
+          echo "Detected project_dir: $(cat $GITHUB_OUTPUT || true)"
 
       - name: Show project dir tree
         shell: bash
@@ -46,22 +50,50 @@ jobs:
           echo "Project dir: ${{ steps.finddir.outputs.project_dir }}"
           ls -la "${{ steps.finddir.outputs.project_dir }}"
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - name: Install system build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev libudev-dev
+
+      - name: Set up Rust (stable)
+        uses: actions-rs/toolchain@v1
         with:
-          node-version: '18'
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Cache cargo & sbf
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/sbf
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Verify Anchor via npx
         shell: bash
-        run: npx --yes @coral-xyz/anchor@latest --version
+        run: |
+          set -euxo pipefail
+          npx --yes @coral-xyz/anchor@${ANCHOR_VER} --version || true
+          echo "Node: $(node -v)"
+          echo "NPM : $(npm -v)"
+          echo "Rust: $(rustc --version)"
 
       - name: Build Anchor program (npx)
         shell: bash
         run: |
+          set -euxo pipefail
           cd "${{ steps.finddir.outputs.project_dir }}"
-          npx --yes @coral-xyz/anchor@latest build
+          # optional: print Anchor.toml for sanity
+          echo "---- Anchor.toml ----"
+          sed -n '1,120p' Anchor.toml || true
+          echo "---------------------"
+          npx --yes @coral-xyz/anchor@${ANCHOR_VER} build
 
-      - name: Upload build artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: wheel8-artifacts
