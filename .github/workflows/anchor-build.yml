@@ -55,17 +55,18 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           rustc --version || true
 
-      - name: Set up Node
+      # IMPORTANT: Node 20.18+ to satisfy Anchor deps
+      - name: Set up Node (>=20.18)
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20.18.0'
 
       - name: Verify Anchor via npx
         run: |
-          npx -y -p @coral-xyz/anchor anchor --version
-          echo "Node: $(node -v)"
-          echo "NPM : $(npm -v)"
-          echo "Rust: $(rustc --version)"
+          node -v
+          npm -v
+          # Use -p (package) and -c (command) to run the bin
+          npx -y -p @coral-xyz/anchor -c "anchor --version"
 
       - name: Build Anchor program (npx, verbose)
         shell: bash
@@ -74,7 +75,7 @@ jobs:
           set -euxo pipefail
           echo "Using Anchor.toml from: $(pwd)"
           sed -n '1,160p' Anchor.toml || true
-          npx -y -p @coral-xyz/anchor anchor build --verbose 2>&1 | tee build.log
+          npx -y -p @coral-xyz/anchor -c "anchor build --verbose" 2>&1 | tee build.log
 
       - name: Upload artifacts
         if: success() || failure()
