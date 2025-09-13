@@ -55,29 +55,27 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           rustc --version || true
 
-      # IMPORTANT: Anchor deps need Node >= 20.18
+      # Anchor deps require Node >= 20.18.0
       - name: Set up Node (>=20.18)
         uses: actions/setup-node@v4
         with:
           node-version: '20.18.0'
 
-      - name: Install Anchor CLI globally and add to PATH
+      # Install Anchor LOCALLY inside the project dir and call the local bin explicitly
+      - name: Install local Anchor CLI
         shell: bash
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
           set -euxo pipefail
           node -v
           npm -v
-          npm i -g @coral-xyz/anchor@latest
-          # add npm global bin to PATH for subsequent steps
-          echo "$(npm bin -g)" >> $GITHUB_PATH
-          echo "NPM global bin: $(npm bin -g)"
-
-      - name: Verify Anchor in PATH
-        shell: bash
-        run: |
-          set -euxo pipefail
-          which anchor
-          anchor --version
+          # Create a minimal package.json if none exists
+          test -f package.json || npm init -y
+          # Install Anchor as a local dependency
+          npm install --no-audit --no-fund @coral-xyz/anchor@latest
+          # Show where the local binary lives
+          ls -la node_modules/.bin || true
+          ./node_modules/.bin/anchor --version
 
       - name: Cache cargo & sbf
         uses: actions/cache@v4
@@ -90,14 +88,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build Anchor program (verbose)
+      - name: Build Anchor program (verbose, local bin)
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
           set -euxo pipefail
           echo "Using Anchor.toml from: $(pwd)"
           sed -n '1,160p' Anchor.toml || true
-          anchor build --verbose 2>&1 | tee build.log
+          ./node_modules/.bin/anchor build --verbose 2>&1 | tee build.log
 
       - name: Upload artifacts
         if: success() || failure()
