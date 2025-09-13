@@ -55,13 +55,13 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           rustc --version || true
 
-      # Anchor deps require Node >= 20.18.0
+      # Anchor CLI deps need Node >= 20.18
       - name: Set up Node (>=20.18)
         uses: actions/setup-node@v4
         with:
           node-version: '20.18.0'
 
-      # Install Anchor LOCALLY inside the project dir and call the local bin explicitly
+      # Install the actual CLI package locally and call its bin directly
       - name: Install local Anchor CLI
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
@@ -69,11 +69,8 @@ jobs:
           set -euxo pipefail
           node -v
           npm -v
-          # Create a minimal package.json if none exists
           test -f package.json || npm init -y
-          # Install Anchor as a local dependency
-          npm install --no-audit --no-fund @coral-xyz/anchor@latest
-          # Show where the local binary lives
+          npm install --no-audit --no-fund @coral-xyz/anchor-cli@latest
           ls -la node_modules/.bin || true
           ./node_modules/.bin/anchor --version
 
