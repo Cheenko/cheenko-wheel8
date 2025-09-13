@@ -55,27 +55,49 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           rustc --version || true
 
-      # IMPORTANT: Node 20.18+ to satisfy Anchor deps
+      # IMPORTANT: Anchor deps need Node >= 20.18
       - name: Set up Node (>=20.18)
         uses: actions/setup-node@v4
         with:
           node-version: '20.18.0'
 
-      - name: Verify Anchor via npx
+      - name: Install Anchor CLI globally and add to PATH
+        shell: bash
         run: |
+          set -euxo pipefail
           node -v
           npm -v
-          # Use -p (package) and -c (command) to run the bin
-          npx -y -p @coral-xyz/anchor -c "anchor --version"
+          npm i -g @coral-xyz/anchor@latest
+          # add npm global bin to PATH for subsequent steps
+          echo "$(npm bin -g)" >> $GITHUB_PATH
+          echo "NPM global bin: $(npm bin -g)"
 
-      - name: Build Anchor program (npx, verbose)
+      - name: Verify Anchor in PATH
+        shell: bash
+        run: |
+          set -euxo pipefail
+          which anchor
+          anchor --version
+
+      - name: Cache cargo & sbf
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/sbf
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build Anchor program (verbose)
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
           set -euxo pipefail
           echo "Using Anchor.toml from: $(pwd)"
           sed -n '1,160p' Anchor.toml || true
-          npx -y -p @coral-xyz/anchor -c "anchor build --verbose" 2>&1 | tee build.log
+          anchor build --verbose 2>&1 | tee build.log
 
       - name: Upload artifacts
         if: success() || failure()
