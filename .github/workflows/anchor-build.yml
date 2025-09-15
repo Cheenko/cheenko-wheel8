@@ -1,4 +1,4 @@
-name: Anchor Build (wheel8)
+name: Anchor Build & Devnet Deploy (wheel8)
 
 on:
   push:
@@ -55,13 +55,13 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           rustc --version || true
 
-      # Anchor CLI deps need Node >= 20.18
+      # Anchor CLI deps require Node >= 20.18.0
       - name: Set up Node (>=20.18)
         uses: actions/setup-node@v4
         with:
           node-version: '20.18.0'
 
-      # Install the actual CLI package locally and call its bin directly
+      # Install the actual CLI package that provides the 'anchor' binary, locally
       - name: Install local Anchor CLI
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
@@ -103,3 +103,126 @@ jobs:
             ${{ steps.finddir.outputs.project_dir }}/target/deploy/*
             ${{ steps.finddir.outputs.project_dir }}/target/idl/*
             ${{ steps.finddir.outputs.project_dir }}/build.log
+
+  deploy-devnet:
+    name: Deploy to Devnet
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel8-artifacts
+          path: artifacts
+
+      - name: Show artifact contents
+        shell: bash
+        run: |
+          echo "Artifacts in ./artifacts:"
+          ls -la artifacts || true
+          echo "----"
+          find artifacts -maxdepth 3 -type f | sed -n '1,200p' || true
+
+      - name: Detect program artifact paths
+        id: detect
+        shell: bash
+        run: |
+          set -e
+          # Try with wheel8/ prefix
+          if [ -f artifacts/wheel8/target/deploy/wheel8.so ]; then
+            echo "program_so=artifacts/wheel8/target/deploy/wheel8.so" >> "$GITHUB_OUTPUT"
+            echo "program_keypair=artifacts/wheel8/target/deploy/wheel8-keypair.json" >> "$GITHUB_OUTPUT"
+            echo "idl=artifacts/wheel8/target/idl/wheel8.json" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Try without prefix
+          if [ -f artifacts/target/deploy/wheel8.so ]; then
+            echo "program_so=artifacts/target/deploy/wheel8.so" >> "$GITHUB_OUTPUT"
+            echo "program_keypair=artifacts/target/deploy/wheel8-keypair.json" >> "$GITHUB_OUTPUT"
+            echo "idl=artifacts/target/idl/wheel8.json" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Could not find wheel8.so in artifacts." >&2
+          exit 1
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl build-essential pkg-config libssl-dev libudev-dev
+
+      - name: Set up Rust (stable)
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          rustc --version || true
+
+      - name: Set up Node (>=20.18)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.18.0'
+
+      - name: Install local Anchor CLI (optional, for convenience)
+        working-directory: artifacts
+        run: |
+          set -euxo pipefail
+          test -f package.json || npm init -y
+          npm install --no-audit --no-fund @coral-xyz/anchor-cli@latest
+          ./node_modules/.bin/anchor --version
+
+      - name: Install Solana CLI
+        run: |
+          set -euxo pipefail
+          curl -sSfL https://release.anza.xyz/stable/install | sh
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          solana --version
+
+      - name: Restore Devnet wallet from secret
+        env:
+          DEVNET_WALLET_B64: ${{ secrets.DEVNET_WALLET_B64 }}
+        run: |
+          set -euxo pipefail
+          if [ -z "${DEVNET_WALLET_B64:-}" ]; then
+            echo "DEVNET_WALLET_B64 secret is not set. Add it in repo settings → Secrets and try again."
+            exit 1
+          fi
+          mkdir -p ~/.config/solana
+          echo "$DEVNET_WALLET_B64" | base64 -d > ~/.config/solana/id.json
+          chmod 600 ~/.config/solana/id.json
+          solana-keygen pubkey ~/.config/solana/id.json
+
+      - name: Point CLI to Devnet
+        run: |
+          set -euxo pipefail
+          solana config set --url https://api.devnet.solana.com
+          solana config set --keypair ~/.config/solana/id.json
+          solana config get
+
+      - name: (Optional) Airdrop test SOL
+        run: |
+          set +e
+          solana airdrop 2 || true
+          set -e
+          solana balance || true
+
+      - name: Read Program ID from keypair
+        id: programid
+        run: |
+          set -euxo pipefail
+          PROG_PUBKEY=$(solana address -k "${{ steps.detect.outputs.program_keypair }}")
+          echo "PROGRAM_ID=$PROG_PUBKEY" >> $GITHUB_ENV
+          echo "Program ID: $PROG_PUBKEY"
+
+      - name: Deploy program to Devnet
+        run: |
+          set -euxo pipefail
+          solana program deploy "${{ steps.detect.outputs.program_so }}" \
+            --program-id "${{ steps.detect.outputs.program_keypair }}"
+
+      - name: Show deployed program
+        run: |
+          set -euxo pipefail
+          echo "Deployed Program ID: $PROGRAM_ID"
+          solana program show "$PROGRAM_ID"
