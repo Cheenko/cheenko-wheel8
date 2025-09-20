@@ -12,18 +12,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Sanity check repo
-        shell: bash
-        run: |
-          echo "PWD=$(pwd)"
-          ls -la
-          echo "----"
-          if [ -d wheel8 ]; then
-            echo "wheel8/ found ✅"; ls -la wheel8
-          else
-            echo "wheel8/ NOT FOUND ❌ (ok if project is at repo root)"
-          fi
-
       - name: Detect Anchor project dir
         id: finddir
         shell: bash
@@ -33,16 +21,10 @@ jobs:
           elif [ -f wheel8/Anchor.toml ]; then
             echo "project_dir=wheel8" >> "$GITHUB_OUTPUT"
           else
-            echo "No Anchor.toml found at repo root or in wheel8/"
+            echo "No Anchor.toml found at repo root or wheel8/"
             ls -la
             exit 1
           fi
-
-      - name: Show project dir tree
-        shell: bash
-        run: |
-          echo "Project dir: ${{ steps.finddir.outputs.project_dir }}"
-          ls -la "${{ steps.finddir.outputs.project_dir }}"
 
       - name: Install system build deps
         run: |
@@ -55,23 +37,18 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           rustc --version || true
 
-      # Anchor CLI deps require Node >= 20.18.0
       - name: Set up Node (>=20.18)
         uses: actions/setup-node@v4
         with:
           node-version: '20.18.0'
 
-      # Install the actual CLI package that provides the 'anchor' binary, locally
       - name: Install local Anchor CLI
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
           set -euxo pipefail
-          node -v
-          npm -v
           test -f package.json || npm init -y
           npm install --no-audit --no-fund @coral-xyz/anchor-cli@latest
-          ls -la node_modules/.bin || true
           ./node_modules/.bin/anchor --version
 
       - name: Cache cargo & sbf
@@ -85,13 +62,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build Anchor program (verbose, local bin)
+      - name: Build Anchor program
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
           set -euxo pipefail
-          echo "Using Anchor.toml from: $(pwd)"
-          sed -n '1,160p' Anchor.toml || true
           ./node_modules/.bin/anchor build --verbose 2>&1 | tee build.log
 
       - name: Upload artifacts
@@ -118,35 +93,39 @@ jobs:
           name: wheel8-artifacts
           path: artifacts
 
-      - name: Show artifact contents
-        shell: bash
-        run: |
-          echo "Artifacts in ./artifacts:"
-          ls -la artifacts || true
-          echo "----"
-          find artifacts -maxdepth 3 -type f | sed -n '1,200p' || true
-
-      - name: Detect program artifact paths
+      - name: Detect program artifact paths (robust)
         id: detect
         shell: bash
         run: |
-          set -e
-          # Try with wheel8/ prefix
-          if [ -f artifacts/wheel8/target/deploy/wheel8.so ]; then
-            echo "program_so=artifacts/wheel8/target/deploy/wheel8.so" >> "$GITHUB_OUTPUT"
-            echo "program_keypair=artifacts/wheel8/target/deploy/wheel8-keypair.json" >> "$GITHUB_OUTPUT"
-            echo "idl=artifacts/wheel8/target/idl/wheel8.json" >> "$GITHUB_OUTPUT"
-            exit 0
+          set -euo pipefail
+          echo "Full artifact tree:"
+          find artifacts -maxdepth 6 -type f | sed -n '1,400p' || true
+          
+          KEYPAIR_PATH=$(find artifacts -type f -path "*/target/deploy/*-keypair.json" | head -n1 || true)
+          if [ -z "${KEYPAIR_PATH}" ]; then
+            echo "No *-keypair.json found in artifacts." >&2
+            exit 1
           fi
-          # Try without prefix
-          if [ -f artifacts/target/deploy/wheel8.so ]; then
-            echo "program_so=artifacts/target/deploy/wheel8.so" >> "$GITHUB_OUTPUT"
-            echo "program_keypair=artifacts/target/deploy/wheel8-keypair.json" >> "$GITHUB_OUTPUT"
-            echo "idl=artifacts/target/idl/wheel8.json" >> "$GITHUB_OUTPUT"
-            exit 0
+          BASENAME=$(basename "${KEYPAIR_PATH}")
+          PROGNAME="${BASENAME%-keypair.json}"
+          echo "Program name inferred: ${PROGNAME}"
+
+          SO_PATH=$(find artifacts -type f -path "*/target/deploy/${PROGNAME}.so" | head -n1 || true)
+          IDL_PATH=$(find artifacts -type f -path "*/target/idl/${PROGNAME}.json" | head -n1 || true)
+
+          if [ -z "${SO_PATH}" ]; then
+            echo "Could not find ${PROGNAME}.so" >&2
+            exit 1
           fi
-          echo "Could not find wheel8.so in artifacts." >&2
-          exit 1
+
+          echo "program_so=${SO_PATH}"           >> "$GITHUB_OUTPUT"
+          echo "program_keypair=${KEYPAIR_PATH}" >> "$GITHUB_OUTPUT"
+          [ -n "${IDL_PATH}" ] && echo "idl=${IDL_PATH}" >> "$GITHUB_OUTPUT"
+
+          echo "Resolved:"
+          echo "  SO       : ${SO_PATH}"
+          echo "  KEYPAIR  : ${KEYPAIR_PATH}"
+          [ -n "${IDL_PATH}" ] && echo "  IDL      : ${IDL_PATH}" || true
 
       - name: Install system deps
         run: |
@@ -164,14 +143,6 @@ jobs:
         with:
           node-version: '20.18.0'
 
-      - name: Install local Anchor CLI (optional, for convenience)
-        working-directory: artifacts
-        run: |
-          set -euxo pipefail
-          test -f package.json || npm init -y
-          npm install --no-audit --no-fund @coral-xyz/anchor-cli@latest
-          ./node_modules/.bin/anchor --version
-
       - name: Install Solana CLI
         run: |
           set -euxo pipefail
@@ -184,10 +155,6 @@ jobs:
           DEVNET_WALLET_B64: ${{ secrets.DEVNET_WALLET_B64 }}
         run: |
           set -euxo pipefail
-          if [ -z "${DEVNET_WALLET_B64:-}" ]; then
-            echo "DEVNET_WALLET_B64 secret is not set. Add it in repo settings → Secrets and try again."
-            exit 1
-          fi
           mkdir -p ~/.config/solana
           echo "$DEVNET_WALLET_B64" | base64 -d > ~/.config/solana/id.json
           chmod 600 ~/.config/solana/id.json
@@ -200,12 +167,12 @@ jobs:
           solana config set --keypair ~/.config/solana/id.json
           solana config get
 
-      - name: (Optional) Airdrop test SOL
+      - name: Preflight: show wallet & balance
         run: |
-          set +e
-          solana airdrop 2 || true
-          set -e
-          solana balance || true
+          set -euxo pipefail
+          solana address
+          solana balance
+          solana fees || true
 
       - name: Read Program ID from keypair
         id: programid
@@ -219,10 +186,23 @@ jobs:
         run: |
           set -euxo pipefail
           solana program deploy "${{ steps.detect.outputs.program_so }}" \
-            --program-id "${{ steps.detect.outputs.program_keypair }}"
+            --program-id "${{ steps.detect.outputs.program_keypair }}" \
+            --commitment confirmed --verbose 2>&1 | tee deploy.log
 
       - name: Show deployed program
+        if: success() || failure()
         run: |
           set -euxo pipefail
           echo "Deployed Program ID: $PROGRAM_ID"
-          solana program show "$PROGRAM_ID"
+          solana program show "$PROGRAM_ID" || true
+
+      - name: Upload deploy logs & outputs
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel8-deploy-${{ github.run_number }}
+          path: |
+            deploy.log
+            ${{ steps.detect.outputs.program_so }}
+            ${{ steps.detect.outputs.program_keypair }}
+            ${{ steps.detect.outputs.idl }}
