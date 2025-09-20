@@ -1,87 +1,14 @@
-name: Anchor Build & Devnet Deploy (wheel8)
+name: Devnet Deploy (wheel8)
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Anchor Build (wheel8)"]
+    types: [completed]
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Detect Anchor project dir
-        id: finddir
-        shell: bash
-        run: |
-          if [ -f Anchor.toml ]; then
-            echo "project_dir=." >> "$GITHUB_OUTPUT"
-          elif [ -f wheel8/Anchor.toml ]; then
-            echo "project_dir=wheel8" >> "$GITHUB_OUTPUT"
-          else
-            echo "No Anchor.toml found at repo root or wheel8/"
-            ls -la
-            exit 1
-          fi
-
-      - name: Install system build deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev libudev-dev
-
-      - name: Set up Rust (stable)
-        run: |
-          curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          rustc --version || true
-
-      - name: Set up Node (>=20.18)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20.18.0'
-
-      - name: Install local Anchor CLI
-        shell: bash
-        working-directory: ${{ steps.finddir.outputs.project_dir }}
-        run: |
-          set -euxo pipefail
-          test -f package.json || npm init -y
-          npm install --no-audit --no-fund @coral-xyz/anchor-cli@latest
-          ./node_modules/.bin/anchor --version
-
-      - name: Cache cargo & sbf
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cache/sbf
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Build Anchor program
-        shell: bash
-        working-directory: ${{ steps.finddir.outputs.project_dir }}
-        run: |
-          set -euxo pipefail
-          ./node_modules/.bin/anchor build --verbose 2>&1 | tee build.log
-
-      - name: Upload build artifacts
-        if: success() || failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheel8-artifacts
-          path: |
-            ${{ steps.finddir.outputs.project_dir }}/target/deploy/*
-            ${{ steps.finddir.outputs.project_dir }}/target/idl/*
-            ${{ steps.finddir.outputs.project_dir }}/build.log
-
   deploy-devnet:
-    name: Deploy to Devnet
-    needs: build
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -142,7 +69,7 @@ jobs:
       - name: Set up Node (>=20.18)
         uses: actions/setup-node@v4
         with:
-          node-version: '20.18.0'
+          node-version: "20.18.0"
 
       - name: Install Solana CLI
         run: |
@@ -172,7 +99,7 @@ jobs:
           solana config set --keypair ~/.config/solana/id.json
           solana config get
 
-      - name: Preflight: show wallet & balance
+      - name: Preflight: wallet & balance
         run: |
           set -euxo pipefail
           solana address
