@@ -69,7 +69,7 @@ jobs:
           set -euxo pipefail
           ./node_modules/.bin/anchor build --verbose 2>&1 | tee build.log
 
-      - name: Upload artifacts
+      - name: Upload build artifacts
         if: success() || failure()
         uses: actions/upload-artifact@v4
         with:
@@ -100,12 +100,13 @@ jobs:
           set -euo pipefail
           echo "Full artifact tree:"
           find artifacts -maxdepth 6 -type f | sed -n '1,400p' || true
-          
+
           KEYPAIR_PATH=$(find artifacts -type f -path "*/target/deploy/*-keypair.json" | head -n1 || true)
           if [ -z "${KEYPAIR_PATH}" ]; then
             echo "No *-keypair.json found in artifacts." >&2
             exit 1
           fi
+
           BASENAME=$(basename "${KEYPAIR_PATH}")
           PROGNAME="${BASENAME%-keypair.json}"
           echo "Program name inferred: ${PROGNAME}"
@@ -118,14 +119,14 @@ jobs:
             exit 1
           fi
 
-          echo "program_so=${SO_PATH}"           >> "$GITHUB_OUTPUT"
+          echo "program_so=${SO_PATH}" >> "$GITHUB_OUTPUT"
           echo "program_keypair=${KEYPAIR_PATH}" >> "$GITHUB_OUTPUT"
-          [ -n "${IDL_PATH}" ] && echo "idl=${IDL_PATH}" >> "$GITHUB_OUTPUT"
+          echo "idl_path=${IDL_PATH}" >> "$GITHUB_OUTPUT"
 
           echo "Resolved:"
-          echo "  SO       : ${SO_PATH}"
-          echo "  KEYPAIR  : ${KEYPAIR_PATH}"
-          [ -n "${IDL_PATH}" ] && echo "  IDL      : ${IDL_PATH}" || true
+          echo "  SO      : ${SO_PATH}"
+          echo "  KEYPAIR : ${KEYPAIR_PATH}"
+          [ -n "${IDL_PATH}" ] && echo "  IDL     : ${IDL_PATH}" || true
 
       - name: Install system deps
         run: |
@@ -155,6 +156,10 @@ jobs:
           DEVNET_WALLET_B64: ${{ secrets.DEVNET_WALLET_B64 }}
         run: |
           set -euxo pipefail
+          if [ -z "${DEVNET_WALLET_B64:-}" ]; then
+            echo "DEVNET_WALLET_B64 secret is not set." >&2
+            exit 1
+          fi
           mkdir -p ~/.config/solana
           echo "$DEVNET_WALLET_B64" | base64 -d > ~/.config/solana/id.json
           chmod 600 ~/.config/solana/id.json
@@ -205,4 +210,3 @@ jobs:
             deploy.log
             ${{ steps.detect.outputs.program_so }}
             ${{ steps.detect.outputs.program_keypair }}
-            ${{ steps.detect.outputs.idl }}
