@@ -1,0 +1,139 @@
+name: Devnet Deploy (wheel8)
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Anchor Build (wheel8)"]
+    types: [completed]
+
+jobs:
+  deploy-devnet:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel8-artifacts
+          path: artifacts
+
+      - name: Detect program artifact paths (robust)
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Full artifact tree:"
+          find artifacts -maxdepth 6 -type f | sed -n '1,400p' || true
+
+          KEYPAIR_PATH=$(find artifacts -type f -path "*/target/deploy/*-keypair.json" | head -n1 || true)
+          if [ -z "${KEYPAIR_PATH}" ]; then
+            echo "No *-keypair.json found in artifacts." >&2
+            exit 1
+          fi
+
+          BASENAME=$(basename "${KEYPAIR_PATH}")
+          PROGNAME="${BASENAME%-keypair.json}"
+          echo "Program name inferred: ${PROGNAME}"
+
+          SO_PATH=$(find artifacts -type f -path "*/target/deploy/${PROGNAME}.so" | head -n1 || true)
+          IDL_PATH=$(find artifacts -type f -path "*/target/idl/${PROGNAME}.json" | head -n1 || true)
+
+          if [ -z "${SO_PATH}" ]; then
+            echo "Could not find ${PROGNAME}.so" >&2
+            exit 1
+          fi
+
+          echo "program_so=${SO_PATH}" >> "$GITHUB_OUTPUT"
+          echo "program_keypair=${KEYPAIR_PATH}" >> "$GITHUB_OUTPUT"
+          echo "idl_path=${IDL_PATH}" >> "$GITHUB_OUTPUT"
+
+          echo "Resolved:"
+          echo "  SO      : ${SO_PATH}"
+          echo "  KEYPAIR : ${KEYPAIR_PATH}"
+          [ -n "${IDL_PATH}" ] && echo "  IDL     : ${IDL_PATH}" || true
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl build-essential pkg-config libssl-dev libudev-dev
+
+      - name: Set up Rust (stable)
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          rustc --version || true
+
+      - name: Set up Node (>=20.18)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.18.0"
+
+      - name: Install Solana CLI
+        run: |
+          set -euxo pipefail
+          curl -sSfL https://release.anza.xyz/stable/install | sh
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          solana --version
+
+      - name: Restore Devnet wallet from secret
+        env:
+          DEVNET_WALLET_B64: ${{ secrets.DEVNET_WALLET_B64 }}
+        run: |
+          set -euxo pipefail
+          if [ -z "${DEVNET_WALLET_B64:-}" ]; then
+            echo "DEVNET_WALLET_B64 secret is not set." >&2
+            exit 1
+          fi
+          mkdir -p ~/.config/solana
+          echo "$DEVNET_WALLET_B64" | base64 -d > ~/.config/solana/id.json
+          chmod 600 ~/.config/solana/id.json
+          solana-keygen pubkey ~/.config/solana/id.json
+
+      - name: Point CLI to Devnet
+        run: |
+          set -euxo pipefail
+          solana config set --url https://api.devnet.solana.com
+          solana config set --keypair ~/.config/solana/id.json
+          solana config get
+
+      - name: Preflight: wallet & balance
+        run: |
+          set -euxo pipefail
+          solana address
+          solana balance
+          solana fees || true
+
+      - name: Read Program ID from keypair
+        id: programid
+        run: |
+          set -euxo pipefail
+          PROG_PUBKEY=$(solana address -k "${{ steps.detect.outputs.program_keypair }}")
+          echo "PROGRAM_ID=$PROG_PUBKEY" >> $GITHUB_ENV
+          echo "Program ID: $PROG_PUBKEY"
+
+      - name: Deploy program to Devnet
+        run: |
+          set -euxo pipefail
+          solana program deploy "${{ steps.detect.outputs.program_so }}" \
+            --program-id "${{ steps.detect.outputs.program_keypair }}" \
+            --commitment confirmed --verbose 2>&1 | tee deploy.log
+
+      - name: Show deployed program
+        if: success() || failure()
+        run: |
+          set -euxo pipefail
+          echo "Deployed Program ID: $PROGRAM_ID"
+          solana program show "$PROGRAM_ID" || true
+
+      - name: Upload deploy logs & outputs
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel8-deploy-${{ github.run_number }}
+          path: |
+            deploy.log
+            ${{ steps.detect.outputs.program_so }}
+            ${{ steps.detect.outputs.program_keypair }}
