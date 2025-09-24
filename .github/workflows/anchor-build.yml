@@ -69,12 +69,19 @@ jobs:
           set -euxo pipefail
           ./node_modules/.bin/anchor build --verbose 2>&1 | tee build.log
 
-      - name: Upload build artifacts
+      - name: Show build outputs
+        shell: bash
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
+        run: |
+          echo "Tree under target:"
+          find target -maxdepth 3 -type f | sed -n '1,200p' || true
+
+      - name: Upload build artifacts (robust globs)
         if: success() || failure()
         uses: actions/upload-artifact@v4
         with:
           name: wheel8-artifacts
           path: |
-            ${{ steps.finddir.outputs.project_dir }}/target/deploy/*
-            ${{ steps.finddir.outputs.project_dir }}/target/idl/*
-            ${{ steps.finddir.outputs.project_dir }}/build.log
+            **/target/deploy/*
+            **/target/idl/*
+            **/build.log
