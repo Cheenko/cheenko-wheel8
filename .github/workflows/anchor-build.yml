@@ -73,6 +73,13 @@ jobs:
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
+          echo "Target tree (depth 4):"
+          find target -maxdepth 4 -type f -size +0c | sort || true        
+
+      - name: Show build outputs
+        shell: bash
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
+        run: |
           echo "Tree under target:"
           find target -maxdepth 3 -type f | sed -n '1,200p' || true
 
