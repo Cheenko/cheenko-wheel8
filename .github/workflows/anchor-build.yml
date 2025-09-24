@@ -69,19 +69,30 @@ jobs:
           set -euxo pipefail
           ./node_modules/.bin/anchor build --verbose 2>&1 | tee build.log
 
-      - name: Show build outputs
+      - name: Show build outputs (target tree)
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
           echo "Target tree (depth 4):"
-          find target -maxdepth 4 -type f -size +0c | sort || true        
+          find target -maxdepth 4 -type f -size +0c | sort || true
 
-      - name: Show build outputs
+      - name: Verify deployable artifacts exist
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
-          echo "Tree under target:"
-          find target -maxdepth 3 -type f | sed -n '1,200p' || true
+          set -euxo pipefail
+          # Find any program name by keypair (authoritative)
+          KEYPAIR=$(find target/deploy -maxdepth 1 -name "*-keypair.json" -type f | head -n1 || true)
+          if [ -z "${KEYPAIR}" ]; then
+            echo "::error::No *-keypair.json found in target/deploy"
+            echo "----- build.log (tail) -----"
+            tail -n 200 build.log || true
+            exit 1
+          fi
+          NAME="$(basename "$KEYPAIR" | sed 's/-keypair\.json$//')"
+          echo "Detected program name: $NAME"
+          test -f "target/deploy/${NAME}.so" || { echo "::error::Missing target/deploy/${NAME}.so"; exit 1; }
+          test -f "target/idl/${NAME}.json"  || { echo "::warning::Missing target/idl/${NAME}.json (continuing)"; true; }
 
       - name: Upload build artifacts (robust globs)
         if: success() || failure()
