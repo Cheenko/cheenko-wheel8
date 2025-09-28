@@ -42,15 +42,28 @@ jobs:
         with:
           node-version: "20.18.0"
 
-      - name: Install local Anchor CLI
+      - name: Check Anchor CLI (pinned)
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
           set -euxo pipefail
-          test -f package.json || npm init -y
-          # Pin to the version your project expects:
-          npm install --no-audit --no-fund @coral-xyz/anchor-cli@0.31.2
-           ./node_modules/.bin/anchor --version
+          node -v
+          npm -v
+          npx -y @coral-xyz/anchor-cli@0.31.2 anchor --version
+
+      - name: Build Anchor program (pinned CLI)
+        shell: bash
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
+        run: |
+          set -euxo pipefail
+          npx -y @coral-xyz/anchor-cli@0.31.2 anchor build --verbose 2>&1 | tee build.log
+
+      - name: Show build outputs (target tree)
+        shell: bash
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
+        run: |
+          echo "Target tree (depth 4):"
+          find target -maxdepth 4 -type f -size +0c | sort || true
 
       - name: Cache cargo & sbf
         uses: actions/cache@v4
