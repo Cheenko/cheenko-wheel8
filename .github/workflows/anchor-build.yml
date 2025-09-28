@@ -94,12 +94,13 @@ jobs:
           test -f "target/deploy/${NAME}.so" || { echo "::error::Missing target/deploy/${NAME}.so"; exit 1; }
           test -f "target/idl/${NAME}.json"  || { echo "::warning::Missing target/idl/${NAME}.json (continuing)"; true; }
 
-      - name: Upload build artifacts (robust globs)
+      - name: Upload build artifacts
         if: success() || failure()
         uses: actions/upload-artifact@v4
         with:
           name: wheel8-artifacts
           path: |
-            **/target/deploy/*
-            **/target/idl/*
-            **/build.log
+            wheel8/target/deploy/*
+            wheel8/target/idl/*
+            wheel8/build.log
+
