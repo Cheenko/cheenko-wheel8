@@ -42,6 +42,7 @@ jobs:
         with:
           node-version: "20.18.0"
 
+      # ⬇️ Pinned CLI via npx; no local node_modules bin
       - name: Check Anchor CLI (pinned)
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
@@ -50,6 +51,17 @@ jobs:
           node -v
           npm -v
           npx -y @coral-xyz/anchor-cli@0.31.2 anchor --version
+
+      - name: Cache cargo & sbf
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/sbf
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Build Anchor program (pinned CLI)
         shell: bash
@@ -65,37 +77,11 @@ jobs:
           echo "Target tree (depth 4):"
           find target -maxdepth 4 -type f -size +0c | sort || true
 
-      - name: Cache cargo & sbf
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cache/sbf
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Build Anchor program
-        shell: bash
-        working-directory: ${{ steps.finddir.outputs.project_dir }}
-        run: |
-          set -euxo pipefail
-          ./node_modules/.bin/anchor build --verbose 2>&1 | tee build.log
-
-      - name: Show build outputs (target tree)
-        shell: bash
-        working-directory: ${{ steps.finddir.outputs.project_dir }}
-        run: |
-          echo "Target tree (depth 4):"
-          find target -maxdepth 4 -type f -size +0c | sort || true
-
       - name: Verify deployable artifacts exist
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
           set -euxo pipefail
-          # Find any program name by keypair (authoritative)
           KEYPAIR=$(find target/deploy -maxdepth 1 -name "*-keypair.json" -type f | head -n1 || true)
           if [ -z "${KEYPAIR}" ]; then
             echo "::error::No *-keypair.json found in target/deploy"
@@ -117,4 +103,3 @@ jobs:
             wheel8/target/deploy/*
             wheel8/target/idl/*
             wheel8/build.log
-
