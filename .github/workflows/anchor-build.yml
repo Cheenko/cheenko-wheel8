@@ -48,8 +48,9 @@ jobs:
         run: |
           set -euxo pipefail
           test -f package.json || npm init -y
-          npm install --no-audit --no-fund @coral-xyz/anchor-cli@latest
-          ./node_modules/.bin/anchor --version
+          # Pin to the version your project expects:
+          npm install --no-audit --no-fund @coral-xyz/anchor-cli@0.31.2
+           ./node_modules/.bin/anchor --version
 
       - name: Cache cargo & sbf
         uses: actions/cache@v4
