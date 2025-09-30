@@ -38,7 +38,7 @@ jobs:
           source "$HOME/.cargo/env"
           rustc --version
 
-            - name: Install Solana CLI (v1.18.22, with fallback)
+      - name: Install Solana CLI (v1.18.22, with fallback)
         shell: bash
         run: |
           set -euxo pipefail
@@ -56,14 +56,12 @@ jobs:
             wget --retry-connrefused --waitretry=2 --read-timeout=20 --timeout=30 -t 5 \
               "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/${TARBALL}"
             tar -xjf "${TARBALL}"
-            # Use the extracted toolchain directly
             echo "$PWD/solana-release/bin" >> "$GITHUB_PATH"
             "$PWD/solana-release/bin/solana" --version
           else
             echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
             "$HOME/.local/share/solana/install/active_release/bin/solana" --version
           fi
-
 
       - name: Set up Node (20.18.0)
         uses: actions/setup-node@v4
@@ -75,13 +73,10 @@ jobs:
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
           set -euxo pipefail
-          # Ensure devDependency exists (creates package.json if needed)
           if [ ! -f package.json ]; then
             npm init -y
           fi
           npm pkg set devDependencies.@coral-xyz/anchor-cli=0.31.2
-
-          # Show versions in project files for debugging
           echo "----- package.json -----"
           cat package.json || true
           echo "----- Anchor.toml -----"
@@ -111,11 +106,9 @@ jobs:
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         env:
-          # Avoid Docker; use local SBF toolchain via Solana 1.18.x
           ANCHOR_USE_SBF_V2: "1"
         run: |
           set -euxo pipefail
-          # Optional: show solana version + cargo target list
           solana --version
           rustup target add sbf-solana-solana
           npx -y @coral-xyz/anchor-cli@0.31.2 anchor build --verbose 2>&1 | tee build.log
