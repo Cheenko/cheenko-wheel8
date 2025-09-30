@@ -43,13 +43,9 @@ jobs:
         run: |
           set -euxo pipefail
           SOLANA_VERSION="1.18.22"
-
-          # Harden TLS and add tools needed for fallback
           sudo apt-get update
           sudo apt-get install -y ca-certificates wget bzip2
           sudo update-ca-certificates
-
-          # Try the official installer (with retries)
           if ! curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 15 "https://release.solana.com/v${SOLANA_VERSION}/install" | sh -s - -y; then
             echo "Official installer failed; falling back to GitHub release asset"
             TARBALL="solana-release-x86_64-unknown-linux-gnu.tar.bz2"
@@ -82,6 +78,16 @@ jobs:
           echo "----- Anchor.toml -----"
           cat Anchor.toml || true
 
+      - name: Clean & install Node deps (ensure anchor 0.31.2 locally)
+        shell: bash
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
+        run: |
+          set -euxo pipefail
+          rm -rf node_modules package-lock.json npm-shrinkwrap.json
+          npm i --no-audit --no-fund
+          npx --yes anchor --version
+          node -e 'console.log("local anchor-cli package.json version:", require("@coral-xyz/anchor-cli/package.json").version)'
+
       - name: Verify Anchor CLI version (local npx)
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
@@ -89,7 +95,7 @@ jobs:
           set -euxo pipefail
           node -v
           npm -v
-          npx -y @coral-xyz/anchor-cli@0.31.2 anchor --version
+          npx anchor --version
 
       - name: Cache cargo & sbf
         uses: actions/cache@v4
@@ -110,8 +116,8 @@ jobs:
         run: |
           set -euxo pipefail
           solana --version
-          npx -y @coral-xyz/anchor-cli@0.31.2 anchor build --verbose 2>&1 | tee build.log
-
+          npx anchor --version
+          npx anchor build --verbose 2>&1 | tee build.log
 
       - name: Show build outputs (target tree)
         shell: bash
