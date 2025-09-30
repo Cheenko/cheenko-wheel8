@@ -110,8 +110,8 @@ jobs:
         run: |
           set -euxo pipefail
           solana --version
-          rustup target add sbf-solana-solana
           npx -y @coral-xyz/anchor-cli@0.31.2 anchor build --verbose 2>&1 | tee build.log
+
 
       - name: Show build outputs (target tree)
         shell: bash
