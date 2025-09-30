@@ -38,12 +38,32 @@ jobs:
           source "$HOME/.cargo/env"
           rustc --version
 
-      - name: Install Solana CLI (v1.18.22)
+            - name: Install Solana CLI (v1.18.22, with fallback)
         shell: bash
         run: |
-          sh -c "$(curl -sSfL https://release.solana.com/v1.18.22/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
-          solana --version
+          set -euxo pipefail
+          SOLANA_VERSION="1.18.22"
+
+          # Harden TLS and add tools needed for fallback
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates wget bzip2
+          sudo update-ca-certificates
+
+          # Try the official installer (with retries)
+          if ! curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 15 "https://release.solana.com/v${SOLANA_VERSION}/install" | sh -s - -y; then
+            echo "Official installer failed; falling back to GitHub release asset"
+            TARBALL="solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+            wget --retry-connrefused --waitretry=2 --read-timeout=20 --timeout=30 -t 5 \
+              "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/${TARBALL}"
+            tar -xjf "${TARBALL}"
+            # Use the extracted toolchain directly
+            echo "$PWD/solana-release/bin" >> "$GITHUB_PATH"
+            "$PWD/solana-release/bin/solana" --version
+          else
+            echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+            "$HOME/.local/share/solana/install/active_release/bin/solana" --version
+          fi
+
 
       - name: Set up Node (20.18.0)
         uses: actions/setup-node@v4
