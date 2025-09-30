@@ -42,8 +42,7 @@ jobs:
         with:
           node-version: "20.18.0"
 
-      # ⬇️ Pinned CLI via npx; no local node_modules bin
-      - name: Check Anchor CLI (pinned)
+      - name: Verify Anchor CLI version (pinned)
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
