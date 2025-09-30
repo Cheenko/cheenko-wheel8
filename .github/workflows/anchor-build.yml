@@ -29,20 +29,45 @@ jobs:
       - name: Install system build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev libudev-dev
+          sudo apt-get install -y build-essential pkg-config libssl-dev libudev-dev curl
 
       - name: Set up Rust (stable)
         run: |
           curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          rustc --version || true
+          source "$HOME/.cargo/env"
+          rustc --version
 
-      - name: Set up Node (>=20.18)
+      - name: Install Solana CLI (v1.18.22)
+        shell: bash
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/v1.18.22/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          solana --version
+
+      - name: Set up Node (20.18.0)
         uses: actions/setup-node@v4
         with:
           node-version: "20.18.0"
 
-      - name: Verify Anchor CLI version (pinned)
+      - name: Ensure project pins Anchor CLI 0.31.2
+        shell: bash
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
+        run: |
+          set -euxo pipefail
+          # Ensure devDependency exists (creates package.json if needed)
+          if [ ! -f package.json ]; then
+            npm init -y
+          fi
+          npm pkg set devDependencies.@coral-xyz/anchor-cli=0.31.2
+
+          # Show versions in project files for debugging
+          echo "----- package.json -----"
+          cat package.json || true
+          echo "----- Anchor.toml -----"
+          cat Anchor.toml || true
+
+      - name: Verify Anchor CLI version (local npx)
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
@@ -62,11 +87,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build Anchor program (pinned CLI)
+      - name: Build Anchor program (0.31.2)
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
+        env:
+          # Avoid Docker; use local SBF toolchain via Solana 1.18.x
+          ANCHOR_USE_SBF_V2: "1"
         run: |
           set -euxo pipefail
+          # Optional: show solana version + cargo target list
+          solana --version
+          rustup target add sbf-solana-solana
           npx -y @coral-xyz/anchor-cli@0.31.2 anchor build --verbose 2>&1 | tee build.log
 
       - name: Show build outputs (target tree)
@@ -99,6 +130,6 @@ jobs:
         with:
           name: wheel8-artifacts
           path: |
-            wheel8/target/deploy/*
-            wheel8/target/idl/*
-            wheel8/build.log
+            ${{ steps.finddir.outputs.project_dir }}/target/deploy/*
+            ${{ steps.finddir.outputs.project_dir }}/target/idl/*
+            ${{ steps.finddir.outputs.project_dir }}/build.log
