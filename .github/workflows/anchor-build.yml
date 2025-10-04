@@ -29,23 +29,24 @@ jobs:
       - name: Install system build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev libudev-dev curl
+          sudo apt-get install -y build-essential pkg-config libssl-dev libudev-dev curl ca-certificates wget bzip2
+          sudo update-ca-certificates
 
       - name: Set up Rust (stable)
+        shell: bash
         run: |
+          set -euxo pipefail
           curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           source "$HOME/.cargo/env"
           rustc --version
+          cargo --version
 
       - name: Install Solana CLI (v1.18.22, with fallback)
         shell: bash
         run: |
           set -euxo pipefail
           SOLANA_VERSION="1.18.22"
-          sudo apt-get update
-          sudo apt-get install -y ca-certificates wget bzip2
-          sudo update-ca-certificates
           if ! curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 15 "https://release.solana.com/v${SOLANA_VERSION}/install" | sh -s - -y; then
             echo "Official installer failed; falling back to GitHub release asset"
             TARBALL="solana-release-x86_64-unknown-linux-gnu.tar.bz2"
@@ -59,70 +60,21 @@ jobs:
             "$HOME/.local/share/solana/install/active_release/bin/solana" --version
           fi
 
+      # Optional: Node is not required for Rust-only builds, but harmless to keep if you later add JS tasks
       - name: Set up Node (20.18.0)
         uses: actions/setup-node@v4
         with:
           node-version: "20.18.0"
 
-      - name: Ensure project pins Anchor CLI 0.31.2
+      - name: Install Anchor CLI (cargo, v0.31.2)
         shell: bash
-        working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
           set -euxo pipefail
-          if [ ! -f package.json ]; then
-            npm init -y
-          fi
-          npm pkg set devDependencies.@coral-xyz/anchor-cli=0.31.2
-          echo "----- package.json -----"
-          cat package.json || true
-          echo "----- Anchor.toml -----"
-          cat Anchor.toml || true
+          source "$HOME/.cargo/env"
+          # Install exact Anchor CLI version from the tag
+          cargo install --git https://github.com/coral-xyz/anchor --tag v0.31.2 anchor-cli --locked
+          anchor --version
 
-      - name: Purge stale Anchor caches (force 0.31.2 binary)
-        shell: bash
-        working-directory: ${{ steps.finddir.outputs.project_dir }}
-        run: |
-          set -euxo pipefail
-          rm -rf "$HOME/.cache/anchor" "$HOME/.config/anchor" "$HOME/.local/share/anchor" || true
-          # sanity: nothing left
-          ls -la "$HOME/.cache" || true
-          ls -la "$HOME/.config" || true
-          ls -la "$HOME/.local/share" || true
-
-      - name: Verify Anchor CLI version (local npx)
-        shell: bash
-        working-directory: ${{ steps.finddir.outputs.project_dir }}
-        run: |
-          set -euxo pipefail
-          node -v
-          npm -v
-          # This will download the 0.31.2 binary fresh after cache purge
-          npx -y @coral-xyz/anchor-cli@0.31.2 anchor --version
-      
-      - name: Verify Anchor CLI version (local npx)
-        shell: bash
-        working-directory: ${{ steps.finddir.outputs.project_dir }}
-        run: |
-          set -euxo pipefail
-          node -v
-          npm -v
-          npx -y @coral-xyz/anchor-cli@0.31.2 anchor --version
-
-      - name: Build Anchor program (0.31.2)
-        shell: bash
-        working-directory: ${{ steps.finddir.outputs.project_dir }}
-        env:
-          ANCHOR_USE_SBF_V2: "1"
-        run: |
-          set -euxo pipefail
-          solana --version
-          which node
-          which npm
-          # confirm we're invoking the pinned CLI and show the real binary path
-          npx -y @coral-xyz/anchor-cli@0.31.2 anchor --version
-          npx -y @coral-xyz/anchor-cli@0.31.2 which anchor || true
-          npx -y @coral-xyz/anchor-cli@0.31.2 anchor build --verbose 2>&1 | tee build.log
-       
       - name: Cache cargo & sbf
         uses: actions/cache@v4
         with:
@@ -130,20 +82,22 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cache/sbf
+            ~/.cargo/bin
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build Anchor program (0.31.2)
+      - name: Build Anchor program
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         env:
           ANCHOR_USE_SBF_V2: "1"
         run: |
           set -euxo pipefail
+          source "$HOME/.cargo/env"
           solana --version
-          npx -y @coral-xyz/anchor-cli@0.31.2 anchor --version
-          npx -y @coral-xyz/anchor-cli@0.31.2 anchor build --verbose 2>&1 | tee build.log
+          anchor --version
+          anchor build --verbose 2>&1 | tee build.log
 
       - name: Show build outputs (target tree)
         shell: bash
