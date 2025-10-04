@@ -77,6 +77,27 @@ jobs:
           cat package.json || true
           echo "----- Anchor.toml -----"
           cat Anchor.toml || true
+
+      - name: Purge stale Anchor caches (force 0.31.2 binary)
+        shell: bash
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
+        run: |
+          set -euxo pipefail
+          rm -rf "$HOME/.cache/anchor" "$HOME/.config/anchor" "$HOME/.local/share/anchor" || true
+          # sanity: nothing left
+          ls -la "$HOME/.cache" || true
+          ls -la "$HOME/.config" || true
+          ls -la "$HOME/.local/share" || true
+
+      - name: Verify Anchor CLI version (local npx)
+        shell: bash
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
+        run: |
+          set -euxo pipefail
+          node -v
+          npm -v
+          # This will download the 0.31.2 binary fresh after cache purge
+          npx -y @coral-xyz/anchor-cli@0.31.2 anchor --version
       
       - name: Verify Anchor CLI version (local npx)
         shell: bash
@@ -95,7 +116,11 @@ jobs:
         run: |
           set -euxo pipefail
           solana --version
+          which node
+          which npm
+          # confirm we're invoking the pinned CLI and show the real binary path
           npx -y @coral-xyz/anchor-cli@0.31.2 anchor --version
+          npx -y @coral-xyz/anchor-cli@0.31.2 which anchor || true
           npx -y @coral-xyz/anchor-cli@0.31.2 anchor build --verbose 2>&1 | tee build.log
        
       - name: Cache cargo & sbf
