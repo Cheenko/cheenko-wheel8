@@ -60,20 +60,13 @@ jobs:
             "$HOME/.local/share/solana/install/active_release/bin/solana" --version
           fi
 
-      # Optional: Node is not required for Rust-only builds, but harmless to keep if you later add JS tasks
-      - name: Set up Node (20.18.0)
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20.18.0"
-
       - name: Install Anchor CLI (cargo, v0.31.2)
         shell: bash
         run: |
           set -euxo pipefail
           source "$HOME/.cargo/env"
-          # Install exact Anchor CLI version from the tag
           cargo install --git https://github.com/coral-xyz/anchor --tag v0.31.2 anchor-cli --locked
-          anchor --version
+          "$HOME/.cargo/bin/anchor" --version
 
       - name: Cache cargo & sbf
         uses: actions/cache@v4
@@ -87,6 +80,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Sanity: ensure Cargo anchor is used; remove npm wrappers
+        shell: bash
+        working-directory: ${{ steps.finddir.outputs.project_dir }}
+        run: |
+          set -euxo pipefail
+          # Show the cargo-installed anchor and PATH
+          which "$HOME/.cargo/bin/anchor" || true
+          "$HOME/.cargo/bin/anchor" --version
+          echo "PATH=$PATH"
+          # Remove any npm-provided anchor wrappers so they can't be picked by accident
+          rm -f node_modules/.bin/anchor || true
+          rm -rf node_modules/@coral-xyz/anchor-cli node_modules/@project-serum/anchor || true
+          # Show Anchor.toml to confirm version pin
+          echo "----- Anchor.toml (head) -----"
+          sed -n '1,120p' Anchor.toml || true
+
       - name: Build Anchor program
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
@@ -96,8 +105,8 @@ jobs:
           set -euxo pipefail
           source "$HOME/.cargo/env"
           solana --version
-          anchor --version
-          anchor build --verbose 2>&1 | tee build.log
+          "$HOME/.cargo/bin/anchor" --version
+          "$HOME/.cargo/bin/anchor" build --verbose 2>&1 | tee build.log
 
       - name: Show build outputs (target tree)
         shell: bash
