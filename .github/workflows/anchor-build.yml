@@ -27,7 +27,9 @@ jobs:
           fi
 
       - name: Install system build deps
+        shell: bash
         run: |
+          set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libssl-dev libudev-dev curl ca-certificates wget bzip2
           sudo update-ca-certificates
@@ -42,13 +44,12 @@ jobs:
           rustc --version
           cargo --version
 
-      - name: Install Solana CLI (v1.18.22, with fallback)
+      - name: Install Solana CLI (v1.18.22)
         shell: bash
         run: |
           set -euxo pipefail
           SOLANA_VERSION="1.18.22"
           if ! curl -fsSL --retry 5 --retry-delay 2 --connect-timeout 15 "https://release.solana.com/v${SOLANA_VERSION}/install" | sh -s - -y; then
-            echo "Official installer failed; falling back to GitHub release asset"
             TARBALL="solana-release-x86_64-unknown-linux-gnu.tar.bz2"
             wget --retry-connrefused --waitretry=2 --read-timeout=20 --timeout=30 -t 5 \
               "https://github.com/solana-labs/solana/releases/download/v${SOLANA_VERSION}/${TARBALL}"
@@ -60,7 +61,7 @@ jobs:
             "$HOME/.local/share/solana/install/active_release/bin/solana" --version
           fi
 
-      - name: Install Anchor CLI (cargo, v0.31.2)
+      - name: Install Anchor CLI (cargo v0.31.2)
         shell: bash
         run: |
           set -euxo pipefail
@@ -80,22 +81,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Sanity: ensure Cargo anchor is used; remove npm wrappers
-        shell: bash
-        working-directory: ${{ steps.finddir.outputs.project_dir }}
-        run: |
-          set -euxo pipefail
-          # Show the cargo-installed anchor and PATH
-          which "$HOME/.cargo/bin/anchor" || true
-          "$HOME/.cargo/bin/anchor" --version
-          echo "PATH=$PATH"
-          # Remove any npm-provided anchor wrappers so they can't be picked by accident
-          rm -f node_modules/.bin/anchor || true
-          rm -rf node_modules/@coral-xyz/anchor-cli node_modules/@project-serum/anchor || true
-          # Show Anchor.toml to confirm version pin
-          echo "----- Anchor.toml (head) -----"
-          sed -n '1,120p' Anchor.toml || true
-
       - name: Build Anchor program
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
@@ -108,11 +93,11 @@ jobs:
           "$HOME/.cargo/bin/anchor" --version
           "$HOME/.cargo/bin/anchor" build --verbose 2>&1 | tee build.log
 
-      - name: Show build outputs (target tree)
+      - name: Show build outputs
         shell: bash
         working-directory: ${{ steps.finddir.outputs.project_dir }}
         run: |
-          echo "Target tree (depth 4):"
+          set -e
           find target -maxdepth 4 -type f -size +0c | sort || true
 
       - name: Verify deployable artifacts exist
@@ -128,9 +113,9 @@ jobs:
             exit 1
           fi
           NAME="$(basename "$KEYPAIR" | sed 's/-keypair\.json$//')"
-          echo "Detected program name: $NAME"
           test -f "target/deploy/${NAME}.so" || { echo "::error::Missing target/deploy/${NAME}.so"; exit 1; }
           test -f "target/idl/${NAME}.json"  || { echo "::warning::Missing target/idl/${NAME}.json (continuing)"; true; }
+          echo "Artifacts OK for program: $NAME"
 
       - name: Upload build artifacts
         if: success() || failure()
