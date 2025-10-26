@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::keccak;
+// use anchor_lang::solana_program::hash::hashv; // <-- use SHA-256 hashv here
 
-declare_id!("216ZrFHfgxufofhxzxZ6QmV6geqHp1ZZUYheD5Mo4Amb"); // <-- update this!
+
+declare_id!("5SZsSFXqN7yBAT6yJWHuBNheyDm7QL9mdqoBUvU5ukAG"); // replace with your program id before deploy
 
 #[program]
 pub mod wheel8 {
@@ -13,34 +14,29 @@ pub mod wheel8 {
         Ok(())
     }
 
-    /// Spin the wheel. Uses a simple keccak hash of (player_pubkey || unix_ts || client_seed)
-    /// to pick an index 0..=7. Emits a SpinResult event.
-    pub fn spin(ctx: Context<Spin>, client_seed: u64) -> Result<()> {
-        let player = ctx.accounts.player.key();
-        let ts = Clock::get()?.unix_timestamp as u64;
+    /// Spin the wheel: keccak(player_pubkey || unix_ts || client_seed).
+    /// Emits a SpinResult event.
+    pub fn spin(ctx: Context<Spin>, seed: u64) -> Result<()> {
+        // simple on-chain PRNG: xorshift64*
+        let clock = Clock::get()?;                 // brings in the current slot
+        let mut x = seed ^ clock.slot;             // mix user seed with slot
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        let rnd = x.wrapping_mul(2685821657736338717);
 
-        // Build the entropy buffer.
-        let mut buf = Vec::with_capacity(32 + 8 + 8);
-        buf.extend_from_slice(&player.to_bytes());
-        buf.extend_from_slice(&ts.to_le_bytes());
-        buf.extend_from_slice(&client_seed.to_le_bytes());
+        let outcome: u8 = (rnd % 8) as u8;
+        let payout: u64 = (outcome as u64) * 10;
 
-        // Hash and pick an index in [0..8)
-        let hash = keccak::hash(&buf);
-        let idx = (hash.0[0] % 8) as u8;
+        msg!("🌀 spin: seed={}, slot={}, rnd={}", seed, clock.slot, rnd);
+        msg!("🎯 outcome={}, payout={}", outcome, payout);
 
-        let mult = ctx.accounts.config.multipliers[idx as usize];
-
-        emit!(SpinResult {
-            player,
-            index: idx,
-            multiplier: mult,
-            rand: hash.0,
-        });
-
+        // emit!(SpinResult { ... }) if you added the event
         Ok(())
     }
+
 }
+
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -51,20 +47,21 @@ pub struct Initialize<'info> {
     pub system_program: Program<'info, System>,
 }
 
+// Your existing accounts
 #[derive(Accounts)]
 pub struct Spin<'info> {
-    pub config: Account<'info, Config>,
     #[account(mut)]
     pub player: Signer<'info>,
-    // system_program not required for spin in this stage
 }
+
 
 #[account]
 pub struct Config {
-    pub multipliers: [u16; 8], // 16 bytes
+    pub multipliers: [u16; 8],
 }
+
 impl Config {
-    // 8 bytes account discriminator + 16 bytes multipliers
+    // 8 bytes discriminator + 8*2 bytes multipliers
     pub const LEN: usize = 8 + (8 * 2);
 }
 

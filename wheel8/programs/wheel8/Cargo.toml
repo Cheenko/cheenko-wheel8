@@ -1,12 +1,12 @@
 [package]
 name = "wheel8"
 version = "0.1.0"
-description = "Created with Anchor"
 edition = "2021"
+description = "Created with Anchor"
 
 [lib]
-crate-type = ["cdylib", "lib"]
 name = "wheel8"
+crate-type = ["cdylib", "lib"]
 
 [features]
 default = []
@@ -19,10 +19,8 @@ anchor-debug = []
 custom-heap = []
 custom-panic = []
 
-
 [dependencies]
-anchor-lang = "0.31.1"
-
+anchor-lang = "0.32.1"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
